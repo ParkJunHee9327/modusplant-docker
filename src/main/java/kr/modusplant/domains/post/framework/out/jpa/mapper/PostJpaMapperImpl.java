@@ -1,0 +1,66 @@
+package kr.modusplant.domains.post.framework.out.jpa.mapper;
+
+import kr.modusplant.domains.post.domain.aggregate.Post;
+import kr.modusplant.domains.post.domain.exception.EmptyValueException;
+import kr.modusplant.domains.post.domain.exception.enums.PostErrorCode;
+import kr.modusplant.domains.post.domain.vo.*;
+import kr.modusplant.domains.post.framework.out.jpa.mapper.supers.PostJpaMapper;
+import kr.modusplant.framework.jpa.entity.CommPostEntity;
+import kr.modusplant.framework.jpa.entity.CommPostEntity.CommPostEntityBuilder;
+import kr.modusplant.framework.jpa.entity.CommPrimaryCategoryEntity;
+import kr.modusplant.framework.jpa.entity.CommSecondaryCategoryEntity;
+import kr.modusplant.framework.jpa.entity.SiteMemberEntity;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+
+@Component
+public class PostJpaMapperImpl implements PostJpaMapper {
+
+    @Override
+    public CommPostEntity toPostEntity(Post post, SiteMemberEntity authorEntity, CommPrimaryCategoryEntity primaryCategoryEntity, CommSecondaryCategoryEntity secondaryCategoryEntity, Long viewCount) {
+        LocalDateTime publishedAt = post.getStatus().isPublished() ? LocalDateTime.now() : null;
+        CommPostEntityBuilder postEntityBuilder = CommPostEntity.builder();
+        if (post.getPostId() != null) {
+            postEntityBuilder.ulid(post.getPostId().getValue());
+        }
+        return postEntityBuilder
+                .primaryCategory(primaryCategoryEntity)
+                .secondaryCategory(secondaryCategoryEntity)
+                .authMember(authorEntity)
+                .likeCount(post.getLikeCount().getValue())
+                .viewCount(viewCount)
+                .title(post.getPostContent().getTitle())
+                .content(post.getPostContent().getContent())
+                .thumbnailPath(post.getPostContent().getThumbnailPath())
+                .isPublished(post.getStatus().isPublished())
+                .publishedAt(publishedAt)
+                .build();
+    }
+
+    @Override
+    public Post toPost(CommPostEntity postEntity) {
+        if (postEntity.getAuthMember() == null) {
+            throw new EmptyValueException(PostErrorCode.EMPTY_AUTHOR_ID);
+        }
+        PostStatus postStatus;
+        PostContent content;
+        if (postEntity.getIsPublished()) {
+            postStatus = PostStatus.published();
+            content = PostContent.create(postEntity.getTitle(), postEntity.getContent(), postEntity.getThumbnailPath());
+        } else {
+            postStatus = PostStatus.draft();
+            content = PostContent.createDraft(postEntity.getTitle(), postEntity.getContent(), postEntity.getThumbnailPath());
+        }
+        return Post.create(
+                PostId.create(postEntity.getUlid()),
+                AuthorId.fromUuid(postEntity.getAuthMember().getUuid()),
+                postEntity.getPrimaryCategory() != null ? PrimaryCategoryId.create(postEntity.getPrimaryCategory().getId()) : null,
+                postEntity.getSecondaryCategory() != null ? SecondaryCategoryId.create(postEntity.getSecondaryCategory().getId()) : null,
+                content,
+                LikeCount.create(postEntity.getLikeCount()),
+                postStatus
+        );
+    }
+
+}

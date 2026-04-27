@@ -1,0 +1,823 @@
+package kr.modusplant.domains.post.adapter.controller;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import kr.modusplant.domains.post.adapter.mapper.PostMapperImpl;
+import kr.modusplant.domains.post.common.util.domain.aggregate.PostTestUtils;
+import kr.modusplant.domains.post.common.util.usecase.model.PostReadModelTestUtils;
+import kr.modusplant.domains.post.common.util.usecase.request.PostRequestTestUtils;
+import kr.modusplant.domains.post.common.util.usecase.response.PostResponseTestUtils;
+import kr.modusplant.domains.post.domain.aggregate.Post;
+import kr.modusplant.domains.post.domain.exception.EmptyValueException;
+import kr.modusplant.domains.post.domain.exception.PostNotFoundException;
+import kr.modusplant.domains.post.domain.vo.AuthorId;
+import kr.modusplant.domains.post.domain.vo.PostId;
+import kr.modusplant.domains.post.usecase.enums.SearchOption;
+import kr.modusplant.domains.post.usecase.enums.SearchSort;
+import kr.modusplant.domains.post.usecase.port.mapper.PostMapper;
+import kr.modusplant.domains.post.usecase.port.processor.MultipartDataProcessorPort;
+import kr.modusplant.domains.post.usecase.port.repository.*;
+import kr.modusplant.domains.post.usecase.record.ContentProcessRecord;
+import kr.modusplant.domains.post.usecase.record.DraftPostReadModel;
+import kr.modusplant.domains.post.usecase.record.PostSummaryReadModel;
+import kr.modusplant.domains.post.usecase.record.PostSummaryWithSearchInfoReadModel;
+import kr.modusplant.domains.post.usecase.request.PostCategoryRequest;
+import kr.modusplant.domains.post.usecase.request.PostInsertRequest;
+import kr.modusplant.domains.post.usecase.request.PostSearchRequest;
+import kr.modusplant.domains.post.usecase.request.PostUpdateRequest;
+import kr.modusplant.domains.post.usecase.response.*;
+import kr.modusplant.framework.aws.service.S3FileService;
+import kr.modusplant.shared.exception.InvalidValueException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static kr.modusplant.domains.post.common.constant.PostJsonNodeConstant.*;
+import static kr.modusplant.domains.post.common.constant.PostUlidConstant.TEST_POST_ULID;
+import static kr.modusplant.domains.post.common.util.usecase.model.PostWithSearchInfoReadModelTestUtils.TEST_POST_SUMMARY_WITH_SEARCH_INFO_READ_MODEL_NULL;
+import static kr.modusplant.domains.post.common.util.usecase.request.PostCategoryRequestTestUtils.testPostCategoryRequest;
+import static kr.modusplant.shared.exception.enums.GeneralErrorCode.INVALID_INPUT;
+import static kr.modusplant.shared.persistence.common.util.constant.CommPostConstant.TEST_COMM_POST_PUBLISHED_AT;
+import static kr.modusplant.shared.persistence.common.util.constant.CommPrimaryCategoryConstant.TEST_COMM_PRIMARY_CATEGORY_ID;
+import static kr.modusplant.shared.persistence.common.util.constant.SiteMemberConstant.MEMBER_BASIC_USER_UUID;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willDoNothing;
+import static org.mockito.Mockito.*;
+
+class PostControllerTest implements PostTestUtils, PostReadModelTestUtils, PostRequestTestUtils, PostResponseTestUtils {
+    private final PostMapper postMapper = new PostMapperImpl();
+    private final PostRepository postRepository = Mockito.mock(PostRepository.class);
+    private final PostQueryRepository postQueryRepository = Mockito.mock(PostQueryRepository.class);
+    private final PostQueryForMemberRepository postQueryForMemberRepository = Mockito.mock(PostQueryForMemberRepository.class);
+    private final MultipartDataProcessorPort multipartDataProcessorPort = Mockito.mock(MultipartDataProcessorPort.class);
+    private final PostViewCountRepository postViewCountRepository = Mockito.mock(PostViewCountRepository.class);
+    private final PostViewLockRepository postViewLockRepository = Mockito.mock(PostViewLockRepository.class);
+    private final PostArchiveRepository postArchiveRepository = Mockito.mock(PostArchiveRepository.class);
+    private final PostRecentlyViewRepository postRecentlyViewRepository = Mockito.mock(PostRecentlyViewRepository.class);
+    private final PostSearchHistoryRepository postSearchHistoryRepository = Mockito.mock(PostSearchHistoryRepository.class);
+    private final S3FileService s3FileService = Mockito.mock(S3FileService.class);
+    private final PostController postController = new PostController(postMapper, postRepository, postQueryRepository, postQueryForMemberRepository, multipartDataProcessorPort, postViewCountRepository,postViewLockRepository,postArchiveRepository, postRecentlyViewRepository,postSearchHistoryRepository,s3FileService);
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(postController, "ttlMinutes", 10L);
+    }
+
+    @Test
+    @DisplayName("모든 발행된 게시글 조회")
+    void testGetAll_givenCategoryAndCursor_willReturnCursorPageResponse() throws IOException {
+        // given
+        PostCategoryRequest categoryRequest = new PostCategoryRequest(testPrimaryCategoryId.getValue(), List.of(testSecondaryCategoryId.getValue()));
+        UUID memberUuid = MEMBER_BASIC_USER_UUID;
+        String ulid = TEST_POST_ULID;
+        int size = 10;
+        List<PostSummaryReadModel> readModels = List.of(TEST_POST_SUMMARY_READ_MODEL);
+
+        given(postQueryRepository.findByCategoryWithCursor(testPrimaryCategoryId.getValue(), List.of(testSecondaryCategoryId.getValue()), memberUuid, ulid, size)).willReturn(readModels);
+        given(multipartDataProcessorPort.convertToPreview(any(JsonNode.class),any(String.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+
+        // when
+        CursorLatestSortedPageResponse<PostSummaryResponse> result = postController.getAll(categoryRequest, memberUuid, ulid, size);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.posts()).hasSize(1);
+        assertThat(result.posts().getFirst().ulid()).isEqualTo(TEST_POST_SUMMARY_READ_MODEL.ulid());
+        assertThat(result.nextUlid()).isNull();
+        assertThat(result.hasNext()).isFalse();
+
+        verify(postQueryRepository).findByCategoryWithCursor(testPrimaryCategoryId.getValue(), List.of(testSecondaryCategoryId.getValue()), memberUuid, ulid, size);
+        verify(multipartDataProcessorPort).convertToPreview(TEST_POST_SUMMARY_READ_MODEL.content(),TEST_POST_SUMMARY_READ_MODEL.thumbnailPath());
+    }
+
+    @Test
+    @DisplayName("키워드로 발행된 게시글을 최신순으로 조회")
+    void testSearchByKeywordWithLatest_givenKeywordAndCursor_willReturnCursorPageResponse() throws IOException {
+        // given
+        String keyword = "벌레";
+        UUID memberUuid = MEMBER_BASIC_USER_UUID;
+        String ulid = TEST_POST_ULID;
+        int size = 10;
+        List<PostSummaryWithSearchInfoReadModel> readModels = List.of(TEST_POST_SUMMARY_WITH_SEARCH_INFO_READ_MODEL_NULL);
+        PostSearchRequest searchRequest = new PostSearchRequest(
+                SearchOption.TITLE_CONTENT, keyword, SearchSort.LATEST,
+                new PostCategoryRequest(null, null));
+
+        willDoNothing().given(postSearchHistoryRepository).saveSearchKeyword(MEMBER_BASIC_USER_UUID, keyword);
+        given(postQueryRepository.searchByKeywordWithLatest(
+                SearchOption.TITLE_CONTENT, keyword, null,null,
+                memberUuid, ulid, TEST_COMM_POST_PUBLISHED_AT, size)).willReturn(readModels);
+        given(multipartDataProcessorPort.convertToPreview(any(JsonNode.class), any(String.class)))
+                .willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+        doNothing().when(postSearchHistoryRepository).saveSearchKeyword(any(UUID.class), any(String.class));
+
+        // when
+        CursorRelevanceSortedPageResponse<PostSummaryWithSearchInfoResponse> result =
+                postController.getByKeyword(searchRequest, memberUuid, ulid,
+                        null, null, TEST_COMM_POST_PUBLISHED_AT, size);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.posts()).hasSize(1);
+        assertThat(result.posts().getFirst().ulid()).isEqualTo(TEST_POST_ULID);
+        assertThat(result.nextUlid()).isNull();
+        assertThat(result.hasNext()).isFalse();
+
+        verify(postQueryRepository).searchByKeywordWithLatest(
+                SearchOption.TITLE_CONTENT, keyword, null,null,
+                memberUuid, ulid, TEST_COMM_POST_PUBLISHED_AT, size);
+        verify(multipartDataProcessorPort).convertToPreview(TEST_POST_CONTENT, TEST_POST_CONTENT_THUMBNAIL_KEY);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {""})
+    @DisplayName("키워드 없이 게시글 목록을 검색하여 예외 발생")
+    void testGetByKeyword_givenNoKeyword_willThrowException(String keyword) {
+        // given & when
+        InvalidValueException invalidValueException = assertThrows(InvalidValueException.class,
+                () -> postController.getByKeyword(
+                        new PostSearchRequest(
+                                SearchOption.TITLE,
+                                keyword,
+                                SearchSort.LATEST,
+                                testPostCategoryRequest),
+                        MEMBER_BASIC_USER_UUID, null, null, null, null, 2));
+
+        // then
+        assertThat(invalidValueException.getErrorCode()).isEqualTo(INVALID_INPUT);
+    }
+
+    @Test
+    @DisplayName("회원인 경우 ULID로 발행된 게시글 상세 조회")
+    void testGetByUlid_givenUlidAndMemberUuid_willReturnPostDetail() throws IOException {
+        // given
+        Long viewCount = 100L;
+
+        given(postQueryRepository.findPostDetailByPostId(any(PostId.class), eq(MEMBER_BASIC_USER_UUID))).willReturn(Optional.of(TEST_PUBLISHED_POST_DETAIL_READ_MODEL));
+        given(multipartDataProcessorPort.convertFileSrcToFullFileSrc(any(JsonNode.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+        given(postViewLockRepository.lock(any(PostId.class), eq(MEMBER_BASIC_USER_UUID), anyLong())).willReturn(true);
+        given(postViewCountRepository.increase(any(PostId.class))).willReturn(viewCount);
+        doNothing().when(postRecentlyViewRepository).recordViewPost(any(UUID.class), any(PostId.class));
+        given(postViewCountRepository.read(any(PostId.class))).willReturn(viewCount);
+
+        // when
+        PostDetailResponse result = postController.getByUlid(TEST_POST_ULID, MEMBER_BASIC_USER_UUID,null);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.ulid()).isEqualTo(TEST_POST_ULID);
+        verify(postQueryRepository).findPostDetailByPostId(any(PostId.class), eq(MEMBER_BASIC_USER_UUID));
+        verify(multipartDataProcessorPort).convertFileSrcToFullFileSrc(any(JsonNode.class));
+        verify(postViewLockRepository).lock(any(PostId.class), eq(MEMBER_BASIC_USER_UUID), anyLong());
+        verify(postViewCountRepository).increase(any(PostId.class));
+        verify(postRecentlyViewRepository).recordViewPost(eq(MEMBER_BASIC_USER_UUID), any(PostId.class));
+        verify(postViewCountRepository).read(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("비회원인 경우 ULID로 발행된 게시글 상세 조회")
+    void testGetByUlid_givenUlidAndGuestId_willReturnPostDetail() throws IOException {
+        // given
+        Long viewCount = 100L;
+        UUID guestId = UUID.randomUUID();
+
+        given(postQueryRepository.findPostDetailByPostId(any(PostId.class), isNull())).willReturn(Optional.of(TEST_PUBLISHED_POST_DETAIL_READ_MODEL));
+        given(multipartDataProcessorPort.convertFileSrcToFullFileSrc(any(JsonNode.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+        given(postViewLockRepository.lockAnonymous(any(PostId.class), eq(guestId), anyLong())).willReturn(true);
+        given(postViewCountRepository.increase(any(PostId.class))).willReturn(viewCount);
+        doNothing().when(postRecentlyViewRepository).recordViewPost(isNull(), any(PostId.class));
+        given(postViewCountRepository.read(any(PostId.class))).willReturn(viewCount);
+
+        // when
+        PostDetailResponse result = postController.getByUlid(TEST_POST_ULID,null, guestId);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.ulid()).isEqualTo(TEST_POST_ULID);
+        verify(postQueryRepository).findPostDetailByPostId(any(PostId.class), isNull());
+        verify(multipartDataProcessorPort).convertFileSrcToFullFileSrc(any(JsonNode.class));
+        verify(postViewLockRepository).lockAnonymous(any(PostId.class), eq(guestId), anyLong());
+        verify(postViewCountRepository).increase(any(PostId.class));
+        verify(postRecentlyViewRepository).recordViewPost(isNull(), any(PostId.class));
+        verify(postViewCountRepository).read(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("작성자가 ULID로 게시된 게시글 데이터 조회하기")
+    void testGetDataByUlid_givenPublishedPostAndAuthor_willReturnPostDetail() throws IOException {
+        // given
+        given(postQueryRepository.findPostDetailDataByPostId(any(PostId.class))).willReturn(Optional.of(TEST_PUBLISHED_POST_DETAIL_DATA_READ_MODEL));
+        given(multipartDataProcessorPort.convertFileSrcToFullFileSrc(any(JsonNode.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+        given(multipartDataProcessorPort.extractOriginalFilenameFromFileKey(anyString())).willReturn(TEST_POST_CONTENT_THUMBNAIL_FILENAME);
+
+        // when
+        PostDetailDataResponse result = postController.getDataByUlid(TEST_POST_ULID,MEMBER_BASIC_USER_UUID);
+
+        // then
+        assertThat(result).isNotNull();
+        verify(postQueryRepository).findPostDetailDataByPostId(any(PostId.class));
+        verify(multipartDataProcessorPort).convertFileSrcToFullFileSrc(any(JsonNode.class));
+        verify(multipartDataProcessorPort).extractOriginalFilenameFromFileKey(anyString());
+    }
+
+    @Test
+    @DisplayName("작성자가 ULID로 임시저장 게시글 데이터 조회하기")
+    void testGetDataByUlid_givenDraftPostAndAuthor_willReturnPostDetail() throws IOException {
+        // given
+        given(postQueryRepository.findPostDetailDataByPostId(any(PostId.class))).willReturn(Optional.of(TEST_DRAFT_POST_DETAIL_DATA_READ_MODEL));
+        given(multipartDataProcessorPort.convertFileSrcToFullFileSrc(any(JsonNode.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+        given(multipartDataProcessorPort.extractOriginalFilenameFromFileKey(anyString())).willReturn(TEST_POST_CONTENT_THUMBNAIL_FILENAME);
+
+        // when
+        PostDetailDataResponse result = postController.getDataByUlid(TEST_POST_ULID, MEMBER_BASIC_USER_UUID);
+
+        // then
+        assertThat(result).isNotNull();
+        verify(postQueryRepository).findPostDetailDataByPostId(any(PostId.class));
+        verify(multipartDataProcessorPort).convertFileSrcToFullFileSrc(any(JsonNode.class));
+        verify(multipartDataProcessorPort).extractOriginalFilenameFromFileKey(anyString());
+    }
+
+    @Test
+    @DisplayName("작성자가 아닐 때, ULID로 임시저장 게시글 데이터 조회 불가")
+    void testGetDataByUlid_givenDraftPostAndNonAuthor_willReturnEmpty() throws IOException {
+        // given
+        UUID otherMemberUuid = UUID.randomUUID();
+
+        given(postQueryRepository.findPostDetailDataByPostId(any(PostId.class))).willReturn(Optional.of(TEST_DRAFT_POST_DETAIL_DATA_READ_MODEL));
+
+        // when & then
+        assertThatThrownBy(() -> postController.getDataByUlid(TEST_POST_ULID, otherMemberUuid))
+                .isInstanceOf(PostNotFoundException.class);
+        verify(postQueryRepository).findPostDetailDataByPostId(any(PostId.class));
+        verify(multipartDataProcessorPort, never()).convertFileSrcToFullFileSrc(any(JsonNode.class));
+        verify(multipartDataProcessorPort, never()).extractOriginalFilenameFromFileKey(anyString());
+    }
+
+    @Test
+    @DisplayName("작성자가 ULID로 빈 값을 가진 임시저장 게시글 데이터 조회하기")
+    void testGetDataByUlid_givenDraftPostAndAuthorWithEmptyValue_willReturnPostDetail() throws IOException {
+        // given
+        given(postQueryRepository.findPostDetailDataByPostId(any(PostId.class))).willReturn(Optional.of(TEST_DRAFT_POST_DETAIL_DATA_READ_MODEL_WITH_EMPTY_VALUE));
+        given(multipartDataProcessorPort.extractOriginalFilenameFromFileKey(null)).willReturn(null);
+
+        // when
+        PostDetailDataResponse result = postController.getDataByUlid(TEST_POST_ULID, MEMBER_BASIC_USER_UUID);
+
+        // then
+        assertThat(result).isNotNull();
+        verify(postQueryRepository).findPostDetailDataByPostId(any(PostId.class));
+        verify(multipartDataProcessorPort,never()).convertFileSrcToFullFileSrc(any(JsonNode.class));
+        verify(multipartDataProcessorPort).extractOriginalFilenameFromFileKey(null);
+    }
+
+    @Test
+    @DisplayName("게시글 생성 및 발행")
+    void testCreatePost_givenPublishedPostRequest_willCreatePost() throws IOException {
+        // given
+        given(multipartDataProcessorPort.saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class))).willReturn(new ContentProcessRecord(TEST_POST_CONTENT_TEXT_AND_IMAGE, TEST_POST_CONTENT_TEXT_AND_IMAGE_THUMBNAIL_KEY));
+
+        // when
+        postController.createPost(requestAllTypes, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(multipartDataProcessorPort).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+        verify(postRepository).save(argThat(post ->
+                post.getAuthorId().getValue().equals(MEMBER_BASIC_USER_UUID) &&
+                        post.getStatus().isPublished()
+        ));
+    }
+
+    @Test
+    @DisplayName("게시글 임시저장")
+    void testCreatePost_givenDraftPostRequest_willCreateDraftPost() throws IOException {
+        // given
+        given(multipartDataProcessorPort.saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class))).willReturn(new ContentProcessRecord(TEST_POST_CONTENT_TEXT_AND_IMAGE, TEST_POST_CONTENT_TEXT_AND_IMAGE_THUMBNAIL_KEY));
+
+        // when
+        postController.createPost(requestAllTypesDraft, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(multipartDataProcessorPort).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+        verify(postRepository).save(argThat(post ->
+                post.getAuthorId().getValue().equals(MEMBER_BASIC_USER_UUID) &&
+                        !post.getStatus().isPublished()
+        ));
+    }
+
+    @Test
+    @DisplayName("빈 값을 포함하여 게시글 임시저장")
+    void testCreatePost_givenDraftPostRequestWithEmptyValue_willCreateDraftPost() throws IOException {
+        // when
+        postController.createPost(requestWithEmptyValueDraft, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(multipartDataProcessorPort,never()).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+        verify(postRepository).save(argThat(post ->
+                post.getAuthorId().getValue().equals(MEMBER_BASIC_USER_UUID) &&
+                        !post.getStatus().isPublished()
+        ));
+    }
+
+    @Test
+    @DisplayName("게시글 제목과 내용 모두 포함하지 않고 게시글 임시저장 시 예외 발생")
+    void testCreatePost_givenDraftPostRequestWithEmptyTitleAndContent_willThrowException() throws IOException {
+        // given
+        PostInsertRequest invalidInsertRequest = new PostInsertRequest(TEST_COMM_PRIMARY_CATEGORY_ID, null, null, null, null, null,false);
+
+        // when & then
+        assertThrows(EmptyValueException.class, () -> postController.createPost(invalidInsertRequest, MEMBER_BASIC_USER_UUID));
+        verify(multipartDataProcessorPort,never()).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+    }
+
+    @Test
+    @DisplayName("발행된 게시글 수정")
+    void testUpdatePost_givenPublishedUpdateRequest_willUpdatePublishedPost() throws IOException {
+        // given
+        Post existingPost = createPublishedPost2();
+
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        given(multipartDataProcessorPort.saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class))).willReturn(new ContentProcessRecord(TEST_POST_CONTENT_TEXT_AND_IMAGE, TEST_POST_CONTENT_TEXT_AND_IMAGE_THUMBNAIL_KEY));
+
+        // when
+        postController.updatePost(updateRequestAllTypes, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(postRepository).getPostByUlid(any(PostId.class));
+        verify(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        verify(multipartDataProcessorPort).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+        verify(postRepository).update(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("임시저장된 게시글 수정하여 발행")
+    void testUpdatePost_givenDraftUpdateRequest_willUpdatePublishedPost() throws IOException {
+        // given
+        Post existingPost = createDraftPost2();
+
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        given(multipartDataProcessorPort.saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class))).willReturn(new ContentProcessRecord(TEST_POST_CONTENT_TEXT_AND_IMAGE, TEST_POST_CONTENT_TEXT_AND_IMAGE_THUMBNAIL_KEY));
+
+        // when
+        postController.updatePost(updateRequestAllTypes, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(postRepository).getPostByUlid(any(PostId.class));
+        verify(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        verify(multipartDataProcessorPort).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+        verify(postRepository).update(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("임시저장된 게시글 수정하여 임시저장")
+    void testUpdatePost_givenDraftUpdateRequest_willUpdateDraftPost() throws IOException {
+        // given
+        Post existingPost = createDraftPost2();
+
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        given(multipartDataProcessorPort.saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class))).willReturn(new ContentProcessRecord(TEST_POST_CONTENT_TEXT_AND_IMAGE, TEST_POST_CONTENT_TEXT_AND_IMAGE_THUMBNAIL_KEY));
+
+        // when
+        postController.updatePost(updateRequestAllTypesDraft, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(postRepository).getPostByUlid(any(PostId.class));
+        verify(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        verify(multipartDataProcessorPort).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+        verify(postRepository).update(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("임시저장된 게시글 수정하여 빈값으로 수정하여 임시저장")
+    void testUpdatePost_givenDraftUpdateRequestWithEmptyValue_willUpdateDraftPost() throws IOException {
+        // given
+        Post existingPost = createDraftPost2();
+
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+
+        // when
+        postController.updatePost(updateRequestWithEmptyValueDraft, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(postRepository).getPostByUlid(any(PostId.class));
+        verify(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        verify(multipartDataProcessorPort,never()).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+        verify(postRepository).update(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("게시글 제목과 내용 모두 포함하지 않고 게시글 임시저장 시 예외 발생")
+    void testUpdatePost_givenDraftPostRequestWithEmptyTitleAndContent_willThrowException() throws IOException {
+        // given
+        Post existingPost = createDraftPost2();
+        PostUpdateRequest invalidUpdateRequest = new PostUpdateRequest(TEST_POST_ULID, TEST_COMM_PRIMARY_CATEGORY_ID, null, null, null, null, null,false);
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+
+        // when & then
+        assertThrows(EmptyValueException.class, () -> postController.updatePost(invalidUpdateRequest, MEMBER_BASIC_USER_UUID));
+        verify(multipartDataProcessorPort,never()).saveFilesAndGenerateContentJson(anyList(),anyList(),any(String.class));
+    }
+
+    @Test
+    @DisplayName("게시글 삭제 후 발행된 게시글은 아카이브에 저장")
+    void testDeletePost_givenPublishedPost_willArchiveAndDelete() {
+        // given
+        Post existingPost = createPublishedPost2();
+
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(postArchiveRepository).save(any(PostId.class));
+        willDoNothing().given(postRepository).deletePostLikeByPostId(any(PostId.class));
+        willDoNothing().given(postRepository).deletePostBookmarkByPostId(any(PostId.class));
+        willDoNothing().given(postRepository).deletePostRecentlyViewRecordByPostId(any(PostId.class));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        willDoNothing().given(postRepository).delete(any(Post.class));
+
+        // when
+        postController.deletePost(TEST_POST_ULID, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(postRepository).getPostByUlid(any(PostId.class));
+        verify(postArchiveRepository).save(any(PostId.class));
+        verify(postRepository).deletePostLikeByPostId(any(PostId.class));
+        verify(postRepository).deletePostBookmarkByPostId(any(PostId.class));
+        verify(postRepository).deletePostRecentlyViewRecordByPostId(any(PostId.class));
+        verify(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        verify(postRepository).delete(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("임시저장 게시글은 아카이브 없이 삭제")
+    void testDeletePost_givenDraftPost_willDeleteWithoutArchive() {
+        // given
+        Post existingPost = createDraftPost2();
+
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        willDoNothing().given(postRepository).delete(any(Post.class));
+
+        // when
+        postController.deletePost(TEST_POST_ULID, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(postRepository).getPostByUlid(any(PostId.class));
+        verify(postArchiveRepository, never()).save(any(PostId.class));
+        verify(postRepository, never()).deletePostLikeByPostId(any(PostId.class));
+        verify(postRepository, never()).deletePostBookmarkByPostId(any(PostId.class));
+        verify(postRepository, never()).deletePostRecentlyViewRecordByPostId(any(PostId.class));
+        verify(multipartDataProcessorPort).deleteFiles(any(JsonNode.class));
+        verify(postRepository).delete(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("빈 값이 포함된 임시저장 게시글은 아카이브 없이 삭제")
+    void testDeletePost_givenDraftPostWithEmptyValue_willDeleteWithoutArchive() {
+        // given
+        Post existingPost = createDraftPostWithEmptyValue2();
+
+        given(postRepository.getPostByUlid(any(PostId.class))).willReturn(Optional.of(existingPost));
+        willDoNothing().given(multipartDataProcessorPort).deleteFiles(null);
+        willDoNothing().given(postRepository).delete(any(Post.class));
+
+        // when
+        postController.deletePost(TEST_POST_ULID, MEMBER_BASIC_USER_UUID);
+
+        // then
+        verify(postRepository).getPostByUlid(any(PostId.class));
+        verify(postArchiveRepository, never()).save(any(PostId.class));
+        verify(postRepository, never()).deletePostLikeByPostId(any(PostId.class));
+        verify(postRepository, never()).deletePostBookmarkByPostId(any(PostId.class));
+        verify(postRepository, never()).deletePostRecentlyViewRecordByPostId(any(PostId.class));
+        verify(multipartDataProcessorPort).deleteFiles(null);
+        verify(postRepository).delete(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("Redis에서 조회수 읽기")
+    void testReadViewCount_givenUlidWithRedisCache_willReturnRedisValue() {
+        // given
+        Long redisViewCount = 150L;
+
+        given(postViewCountRepository.read(any(PostId.class))).willReturn(redisViewCount);
+
+        // when
+        Long result = postController.readViewCount(TEST_POST_ULID);
+
+        // then
+        assertThat(result).isEqualTo(redisViewCount);
+        verify(postViewCountRepository).read(any(PostId.class));
+        verify(postRepository, never()).getViewCountByUlid(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("Redis에 없다면 DB에서 조회 후 캐싱조회수 읽기")
+    void testReadViewCount_givenUlidWithoutRedisCache_willReturnDbValueAndCache() {
+        // given
+        Long dbViewCount = 100L;
+
+        given(postViewCountRepository.read(any(PostId.class))).willReturn(null);
+        given(postRepository.getViewCountByUlid(any(PostId.class))).willReturn(dbViewCount);
+        willDoNothing().given(postViewCountRepository).write(any(PostId.class), eq(dbViewCount));
+
+        // when
+        Long result = postController.readViewCount(TEST_POST_ULID);
+
+        // then
+        assertThat(result).isEqualTo(dbViewCount);
+        verify(postViewCountRepository).read(any(PostId.class));
+        verify(postRepository).getViewCountByUlid(any(PostId.class));
+        verify(postViewCountRepository).write(any(PostId.class), eq(dbViewCount));
+    }
+
+    @Test
+    @DisplayName("회원일 경우 락 획득 성공 시 조회수 증가")
+    void testIncreaseViewCount_givenUlidAndMemberWithoutLock_willIncreasViewCount() {
+        // given
+        long ttl = 10L;
+        Long increasedViewCount = 101L;
+
+        given(postViewLockRepository.lock(any(PostId.class), eq(MEMBER_BASIC_USER_UUID), eq(ttl))).willReturn(true);
+        given(postViewCountRepository.increase(any(PostId.class))).willReturn(increasedViewCount);
+
+        // when
+        Long result = postController.increaseViewCount(TEST_POST_ULID, MEMBER_BASIC_USER_UUID,null);
+
+        // then
+        assertThat(result).isEqualTo(increasedViewCount);
+        verify(postViewLockRepository).lock(any(PostId.class), eq(MEMBER_BASIC_USER_UUID), eq(ttl));
+        verify(postViewCountRepository).increase(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("회원일 경우 락 획득 실패 시 기존 조회수 반환")
+    void testIncreaseViewCount_givenUlidAndMemberWithExistingLock_willReturnCurrentViewCount() {
+        // given
+        long ttl = 10L;
+        Long currentViewCount = 100L;
+
+        given(postViewLockRepository.lock(any(PostId.class), eq(MEMBER_BASIC_USER_UUID), eq(ttl)))
+                .willReturn(false);
+        given(postViewCountRepository.read(any(PostId.class))).willReturn(currentViewCount);
+
+        // when
+        Long result = postController.increaseViewCount(TEST_POST_ULID, MEMBER_BASIC_USER_UUID,null);
+
+        // then
+        assertThat(result).isEqualTo(currentViewCount);
+        verify(postViewLockRepository).lock(any(PostId.class), eq(MEMBER_BASIC_USER_UUID), eq(ttl));
+        verify(postViewCountRepository).read(any(PostId.class));
+        verify(postViewCountRepository, never()).increase(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("비회원일 경우 락 획득 성공 시 조회수 증가")
+    void testIncreaseViewCount_givenUlidAndGuestIdWithoutLock_willIncreasViewCount() {
+        // given
+        long ttl = 10L;
+        Long increasedViewCount = 101L;
+        UUID guestId = UUID.randomUUID();
+
+        given(postViewLockRepository.lockAnonymous(any(PostId.class), eq(guestId), eq(ttl))).willReturn(true);
+        given(postViewCountRepository.increase(any(PostId.class))).willReturn(increasedViewCount);
+
+        // when
+        Long result = postController.increaseViewCount(TEST_POST_ULID,null, guestId);
+
+        // then
+        assertThat(result).isEqualTo(increasedViewCount);
+        verify(postViewLockRepository).lockAnonymous(any(PostId.class), eq(guestId), eq(ttl));
+        verify(postViewCountRepository).increase(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("비회원일 경우 락 획득 실패 시 기존 조회수 반환")
+    void testIncreaseViewCount_givenUlidAndGuestIdWithExistingLock_willReturnCurrentViewCount() {
+        // given
+        long ttl = 10L;
+        Long currentViewCount = 100L;
+        UUID guestId = UUID.randomUUID();
+
+        given(postViewLockRepository.lockAnonymous(any(PostId.class), eq(guestId), eq(ttl)))
+                .willReturn(false);
+        given(postViewCountRepository.read(any(PostId.class))).willReturn(currentViewCount);
+
+        // when
+        Long result = postController.increaseViewCount(TEST_POST_ULID,null, guestId);
+
+        // then
+        assertThat(result).isEqualTo(currentViewCount);
+        verify(postViewLockRepository).lockAnonymous(any(PostId.class), eq(guestId), eq(ttl));
+        verify(postViewCountRepository).read(any(PostId.class));
+        verify(postViewCountRepository, never()).increase(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("회원 ID와 게스트 ID 모두 주어지지 않았을 때 기존 조회수 반환")
+    void testIncreaseViewCount_givenUlid_willReturnCurrentViewCount() {
+        // given
+        Long currentViewCount = 100L;
+
+        given(postViewCountRepository.read(any(PostId.class))).willReturn(currentViewCount);
+
+        // when
+        Long result = postController.increaseViewCount(TEST_POST_ULID,null,null);
+
+        // then
+        assertThat(result).isEqualTo(currentViewCount);
+        verify(postViewCountRepository).read(any(PostId.class));
+        verify(postViewCountRepository, never()).increase(any(PostId.class));
+    }
+
+    @Test
+    @DisplayName("특정 회원의 발행된 게시글 조회")
+    void testGetByMemberUuid_givenMemberUuidAndPage_willReturnOffsetPageResponse() throws IOException {
+        // given
+        int page = 1;
+        int size = 5;
+        long totalElements = 1;
+        Page<PostSummaryReadModel> readModelPage = new PageImpl<>(List.of(TEST_POST_SUMMARY_READ_MODEL), PageRequest.of(0,size),totalElements);
+
+        given(postQueryForMemberRepository.findPublishedByAuthMemberWithOffset(any(AuthorId.class), eq(0), eq(size))).willReturn(readModelPage);
+        given(multipartDataProcessorPort.convertToPreview(any(JsonNode.class),any(String.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+
+        // when
+        OffsetPageResponse<PostSummaryResponse> result = postController.getByMemberUuid(MEMBER_BASIC_USER_UUID, 0, size);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.posts()).hasSize(1);
+        assertThat(result.posts().getFirst().ulid()).isEqualTo(TEST_POST_SUMMARY_READ_MODEL.ulid());
+        assertThat(result.page()).isEqualTo(page);
+        assertThat(result.totalElements()).isEqualTo(totalElements);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(result.hasNext()).isFalse();
+        assertThat(result.hasPrevious()).isFalse();
+        verify(postQueryForMemberRepository).findPublishedByAuthMemberWithOffset(any(AuthorId.class),eq(0),eq(size));
+        verify(multipartDataProcessorPort).convertToPreview(any(JsonNode.class),any(String.class));
+    }
+
+    @Test
+    @DisplayName("특정 회원의 임시저장 게시글 조회")
+    void testGetDraftByMemberUuid_givenMemberUuidAndPage_willReturnOffsetPageResponse() throws IOException {
+        // given
+        int page = 1;
+        int size = 5;
+        long totalElements = 1;
+        Page<DraftPostReadModel> readModelPage = new PageImpl<>(List.of(TEST_DRAFT_POST_READ_MODEL), PageRequest.of(0,size),totalElements);
+
+        given(postQueryForMemberRepository.findDraftByAuthMemberWithOffset(any(AuthorId.class), eq(0),eq(size))).willReturn(readModelPage);
+        given(multipartDataProcessorPort.convertToPreview(any(JsonNode.class),any(String.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+
+        // when
+        OffsetPageResponse<DraftPostResponse> result = postController.getDraftByMemberUuid(MEMBER_BASIC_USER_UUID, 0, size);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.posts()).hasSize(1);
+        assertThat(result.posts().getFirst().ulid()).isEqualTo(TEST_DRAFT_POST_READ_MODEL.ulid());
+        assertThat(result.page()).isEqualTo(page);
+        assertThat(result.totalElements()).isEqualTo(totalElements);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(result.hasNext()).isFalse();
+        assertThat(result.hasPrevious()).isFalse();
+
+        verify(postQueryForMemberRepository).findDraftByAuthMemberWithOffset(any(AuthorId.class), eq(0),eq(size));
+        verify(multipartDataProcessorPort).convertToPreview(any(JsonNode.class),any(String.class));
+    }
+
+    @Test
+    @DisplayName("최근 본 게시글 목록이 비어있을 때")
+    void testGetRecentlyViewByMemberUuid_givenEmptyPostIds_willReturnEmptyPage() {
+        // given
+        long totalElements = 3L;
+        int page = 1;
+        int size = 5;
+
+        given(postRecentlyViewRepository.getRecentlyViewPostIds(MEMBER_BASIC_USER_UUID, 0, size)).willReturn(List.of());
+        given(postRecentlyViewRepository.getTotalRecentlyViewPosts(MEMBER_BASIC_USER_UUID)).willReturn(totalElements);
+
+        // when
+        OffsetPageResponse<PostSummaryResponse> result = postController.getRecentlyViewByMemberUuid(MEMBER_BASIC_USER_UUID, 0, size);
+
+        // then
+        assertThat(result.posts()).isEmpty();
+        assertThat(result.totalElements()).isEqualTo(totalElements);
+        assertThat(result.page()).isEqualTo(page);
+        assertThat(result.size()).isEqualTo(size);
+
+        verify(postRecentlyViewRepository).getRecentlyViewPostIds(MEMBER_BASIC_USER_UUID, 0, size);
+        verify(postRecentlyViewRepository).getTotalRecentlyViewPosts(MEMBER_BASIC_USER_UUID);
+        verify(postQueryForMemberRepository, never()).findByIds(anyList(), any(UUID.class));
+    }
+
+    @Test
+    @DisplayName("최근 본 게시글 목록이 있을 때")
+    void testGetRecentlyViewByMemberUuid_givenPostIds_willReturnPostsPage() throws IOException {
+        // given
+        List<PostId> postIds = List.of(testPostId, testPostId2);
+        long totalElements = 2L;
+        int page = 1;
+        int size = 5;
+
+        List<PostSummaryReadModel> postModels = List.of(TEST_POST_SUMMARY_READ_MODEL, TEST_POST_SUMMARY_READ_MODEL2);
+
+        given(postRecentlyViewRepository.getRecentlyViewPostIds(MEMBER_BASIC_USER_UUID, 0, size)).willReturn(postIds);
+        given(postRecentlyViewRepository.getTotalRecentlyViewPosts(MEMBER_BASIC_USER_UUID)).willReturn(totalElements);
+        given(postQueryForMemberRepository.findByIds(postIds, MEMBER_BASIC_USER_UUID)).willReturn(postModels);
+        given(multipartDataProcessorPort.convertToPreview(TEST_POST_CONTENT, TEST_POST_CONTENT_THUMBNAIL_KEY)).willReturn((ArrayNode) TEST_POST_CONTENT_PREVIEW);
+
+        // when
+        OffsetPageResponse<PostSummaryResponse> result = postController.getRecentlyViewByMemberUuid(MEMBER_BASIC_USER_UUID, 0, size);
+
+        // then
+        assertThat(result.posts()).hasSize(2);
+        assertThat(result.posts()).containsExactly(TEST_POST_SUMMARY_RESPONSE, TEST_POST_SUMMARY_RESPONSE2);
+        assertThat(result.totalElements()).isEqualTo(totalElements);
+        assertThat(result.page()).isEqualTo(page);
+        assertThat(result.size()).isEqualTo(size);
+
+        verify(postRecentlyViewRepository).getRecentlyViewPostIds(MEMBER_BASIC_USER_UUID, 0, size);
+        verify(postRecentlyViewRepository).getTotalRecentlyViewPosts(MEMBER_BASIC_USER_UUID);
+        verify(postQueryForMemberRepository).findByIds(postIds, MEMBER_BASIC_USER_UUID);
+        verify(multipartDataProcessorPort,times(2)).convertToPreview(TEST_POST_CONTENT, TEST_POST_CONTENT_THUMBNAIL_KEY);
+    }
+
+    @Test
+    @DisplayName("특정 회원의 좋아요한 게시글 목록 조회")
+    void testGetLikedByMemberUuid_givenMemberUuidAndPage_willReturnOffsetPageResponse() throws IOException {
+        // given
+        int page = 1;
+        int size = 5;
+        long totalElements = 1;
+        Page<PostSummaryReadModel> readModelPage = new PageImpl<>(List.of(TEST_POST_SUMMARY_READ_MODEL), PageRequest.of(0,size),totalElements);
+
+        given(postQueryForMemberRepository.findLikedByMemberWithOffset(eq(MEMBER_BASIC_USER_UUID), eq(0), eq(size))).willReturn(readModelPage);
+        given(multipartDataProcessorPort.convertToPreview(any(JsonNode.class),any(String.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+
+        // when
+        OffsetPageResponse<PostSummaryResponse> result = postController.getLikedByMemberUuid(MEMBER_BASIC_USER_UUID, 0,size);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.posts()).hasSize(1);
+        assertThat(result.posts().getFirst().ulid()).isEqualTo(TEST_POST_SUMMARY_READ_MODEL.ulid());
+        assertThat(result.page()).isEqualTo(page);
+        assertThat(result.totalElements()).isEqualTo(totalElements);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(result.hasNext()).isFalse();
+        assertThat(result.hasPrevious()).isFalse();
+        verify(postQueryForMemberRepository).findLikedByMemberWithOffset(eq(MEMBER_BASIC_USER_UUID),eq(0),eq(size));
+        verify(multipartDataProcessorPort).convertToPreview(any(JsonNode.class),any(String.class));
+    }
+
+    @Test
+    @DisplayName("특정 회원의 북마크한 게시글 목록 조회")
+    void testGetBookmarkedByMemberUuid_givenMemberUuidAndPage_willReturnOffsetPageResponse() throws IOException {
+        // given
+        int page = 1;
+        int size = 5;
+        long totalElements = 1;
+        Page<PostSummaryReadModel> readModelPage = new PageImpl<>(List.of(TEST_POST_SUMMARY_READ_MODEL), PageRequest.of(0,size),totalElements);
+
+        given(postQueryForMemberRepository.findBookmarkedByMemberWithOffset(eq(MEMBER_BASIC_USER_UUID), eq(0), eq(size))).willReturn(readModelPage);
+        given(multipartDataProcessorPort.convertToPreview(any(JsonNode.class),any(String.class))).willReturn((ArrayNode) TEST_POST_CONTENT_TEXT_AND_IMAGE);
+
+        // when
+        OffsetPageResponse<PostSummaryResponse> result = postController.getBookmarkedByMemberUuid(MEMBER_BASIC_USER_UUID, 0,size);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.posts()).hasSize(1);
+        assertThat(result.posts().getFirst().ulid()).isEqualTo(TEST_POST_SUMMARY_READ_MODEL.ulid());
+        assertThat(result.page()).isEqualTo(page);
+        assertThat(result.totalElements()).isEqualTo(totalElements);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(result.hasNext()).isFalse();
+        assertThat(result.hasPrevious()).isFalse();
+        verify(postQueryForMemberRepository).findBookmarkedByMemberWithOffset(eq(MEMBER_BASIC_USER_UUID),eq(0),eq(size));
+        verify(multipartDataProcessorPort).convertToPreview(any(JsonNode.class),any(String.class));
+    }
+
+}

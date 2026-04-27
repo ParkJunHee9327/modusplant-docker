@@ -1,0 +1,63 @@
+package kr.modusplant.domains.member.domain.entity;
+
+import kr.modusplant.domains.member.domain.exception.enums.MemberErrorCode;
+import kr.modusplant.domains.member.domain.vo.MemberProfileImagePath;
+import kr.modusplant.shared.exception.EmptyValueException;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
+
+import static kr.modusplant.domains.member.common.util.domain.entity.MemberProfileImageTestUtils.testMemberProfileImage;
+import static kr.modusplant.domains.member.common.util.domain.vo.MemberIdTestUtils.testMemberId;
+import static kr.modusplant.domains.member.common.util.domain.vo.MemberProfileImageBytesTestUtils.testMemberProfileImageBytes;
+import static kr.modusplant.domains.member.common.util.domain.vo.MemberProfileImagePathTestUtils.testMemberProfileImagePath;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
+
+class MemberProfileImageTest {
+    @DisplayName("null 값으로 create 호출")
+    @Test
+    void testCreate_givenNullToOneOfTwoParameters_willThrowException() {
+        // MemberProfileImagePath가 null일 때
+        // given
+        EmptyValueException emptyMemberProfileImagePathException = assertThrows(EmptyValueException.class, () -> MemberProfileImage.create(null, testMemberProfileImageBytes));
+
+        // when & then
+        assertThat(emptyMemberProfileImagePathException.getErrorCode()).isEqualTo(MemberErrorCode.EMPTY_MEMBER_PROFILE_IMAGE_PATH);
+
+        // MemberProfileImageBytes가 null일 때
+        // given
+        EmptyValueException emptyMemberProfileImageBytesException = assertThrows(EmptyValueException.class, () -> MemberProfileImage.create(testMemberProfileImagePath, null));
+
+        // when & then
+        assertThat(emptyMemberProfileImageBytesException.getErrorCode()).isEqualTo(MemberErrorCode.EMPTY_MEMBER_PROFILE_IMAGE_BYTES);
+    }
+
+    @Test
+    @DisplayName("같은 객체에 대한 equals 호출")
+    void testEquals_givenSameObject_willReturnTrue() {
+        //noinspection EqualsWithItself
+        assertEquals(testMemberProfileImage, testMemberProfileImage);
+    }
+
+    @Test
+    @DisplayName("다른 클래스의 인스턴스에 대한 equals 호출")
+    void testEquals_givenObjectOfDifferentClass_willReturnFalse() {
+        //noinspection AssertBetweenInconvertibleTypes
+        assertNotEquals(testMemberProfileImage, testMemberId);
+    }
+
+    @Test
+    @DisplayName("다른 프로퍼티를 갖는 인스턴스에 대한 equals 호출")
+    void testEquals_givenObjectContainingDifferentProperty_willReturnFalse() {
+        UUID id = UUID.randomUUID();
+        assertNotEquals(testMemberProfileImage, MemberProfileImage.create(MemberProfileImagePath.create(String.format("member/%s/profile/%s", id, "image.png")), testMemberProfileImageBytes));
+    }
+
+    @Test
+    @DisplayName("같은 객체에 대한 hashcode 동일성 보장")
+    void testHashCode_givenSameObject_willReturnSameHashCode() {
+        assertEquals(testMemberProfileImage.hashCode(), testMemberProfileImage.hashCode());
+    }
+}

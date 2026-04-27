@@ -1,0 +1,248 @@
+buildscript {
+	repositories {
+		mavenCentral()
+	}
+	dependencies {
+		classpath 'software.amazon.awssdk:ssm:2.36.0'
+		classpath 'org.flywaydb:flyway-database-postgresql:11.15.0'
+	}
+}
+
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.4.3'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'org.flywaydb.flyway' version '11.15.0'
+	id 'org.jooq.jooq-codegen-gradle' version '3.20.8'
+	id 'jacoco'
+}
+
+group = 'modusplant'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+// DB 설정
+def requiredEnvOrProp = { String envName, String propName ->
+    def envVal = System.getenv(envName)
+    if (envVal != null && !envVal.trim().isEmpty()) {
+        return envVal.trim()
+    }
+
+    def propVal = project.hasProperty(propName) ? project.property(propName) : null
+    if (propVal != null && !propVal.toString().trim().isEmpty()) {
+        return propVal.toString().trim()
+    }
+
+    throw new GradleException("환경변수 ${envName} 또는 -P${propName} 중 하나는 반드시 설정되어야 합니다.")
+}
+
+ext {
+    jdbcConnectionUrl = requiredEnvOrProp('JDBC_CONNECTION_URL', 'jdbcConnectionUrl')
+    jdbcUsername      = requiredEnvOrProp('JDBC_USERNAME', 'jdbcUsername')
+    jdbcPassword      = requiredEnvOrProp('JDBC_PASSWORD', 'jdbcPassword')
+}
+
+dependencies {
+	// Lombok (Version managed by Spring Boot BOM)
+	annotationProcessor 'org.projectlombok:lombok'
+	compileOnly 'org.projectlombok:lombok'
+	implementation 'org.projectlombok:lombok-mapstruct-binding:0.2.0' // Version required
+	testAnnotationProcessor 'org.projectlombok:lombok'
+	testCompileOnly 'org.projectlombok:lombok'
+
+	// PostgreSQL
+	jooqCodegen 'org.postgresql:postgresql:42.7.2' // Tool dependency
+	runtimeOnly 'org.postgresql:postgresql' // Version managed by Spring Boot BOM
+
+	// JJWT
+	def jjwtVersion = '0.12.5'
+	runtimeOnly "io.jsonwebtoken:jjwt-impl:$jjwtVersion"
+	runtimeOnly "io.jsonwebtoken:jjwt-jackson:$jjwtVersion"
+	implementation "io.jsonwebtoken:jjwt-api:$jjwtVersion"
+
+	// MapStruct
+	def mapstructVersion = '1.5.3.Final'
+	annotationProcessor "org.mapstruct:mapstruct-processor:$mapstructVersion"
+	implementation "org.mapstruct:mapstruct:$mapstructVersion"
+	testAnnotationProcessor "org.mapstruct:mapstruct-processor:$mapstructVersion"
+
+	// Spring Boot Starters (Version managed by Spring Boot BOM)
+	implementation 'org.springframework.boot:spring-boot-starter-aop'
+	implementation 'org.springframework.boot:spring-boot-starter-cache'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+	// Spring Security (Version managed by Spring Boot BOM)
+	implementation 'org.springframework.security:spring-security-crypto'
+	testImplementation 'org.springframework.security:spring-security-test'
+
+	// Spring Cloud AWS (Version managed by Spring Cloud AWS Dependencies)
+	implementation platform('io.awspring.cloud:spring-cloud-aws-dependencies:3.2.0')
+	implementation 'io.awspring.cloud:spring-cloud-aws-starter-parameter-store'
+	implementation 'software.amazon.awssdk:s3'
+
+    // Flyway Runtime Dependencies
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+
+	// Other Main Dependencies (Version required)
+	implementation 'com.github.f4b6a3:ulid-creator:5.2.3'
+	implementation 'com.mailjet:mailjet-client:5.2.5'
+	implementation 'io.hypersistence:hypersistence-utils-hibernate-63:3.9.10'
+	implementation 'org.apache.commons:commons-lang3:3.18.0'
+	implementation 'org.bouncycastle:bcpkix-jdk18on:1.82'
+	implementation 'org.jooq:jooq:3.20.8'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.7.0'
+
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+    implementation 'org.codehaus.janino:janino'
+    implementation 'org.codehaus.janino:commons-compiler'
+
+	// Other Test Dependencies (Versions required) ---
+	testImplementation 'io.github.hakky54:logcaptor:2.11.0'
+}
+
+sourceSets {
+	main {
+		java {
+			srcDir 'build/generated/sources/jooq/main'
+		}
+	}
+}
+
+flyway {
+	driver = 'org.postgresql.Driver'
+	url = jdbcConnectionUrl
+	user = jdbcUsername
+	password = jdbcPassword
+	cleanDisabled = false
+	baselineOnMigrate = true
+	baselineVersion = '0.0.0'
+	outOfOrder = false
+	encoding = 'UTF-8'
+	detectEncoding = true
+	schemas = ['public']
+}
+
+jacoco {
+	toolVersion = '0.8.12'
+}
+
+jooq {
+	version = '3.20.8'
+	configuration {
+		jdbc {
+			driver = 'org.postgresql.Driver'
+			url = jdbcConnectionUrl
+			user = jdbcUsername
+			password = jdbcPassword
+		}
+		generator {
+			generate {
+				javaTimeTypes = true
+			}
+			database {
+				name = 'org.jooq.meta.postgres.PostgresDatabase'
+				inputSchema = 'public'
+				includes = '.*'
+				excludes = 'databasechangelog|databasechangeloglock|flyway_schema_history'
+			}
+			target {
+				packageName = 'kr.modusplant.jooq'
+				directory = 'build/generated/sources/jooq/main'
+				encoding = 'UTF-8'
+			}
+		}
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.annotationProcessorPath = configurations.annotationProcessor
+	options.compilerArgs += ["-parameters",
+							 "-Xlint:unchecked",
+							 "-Amapstruct.defaultComponentModel=spring",
+							 "-Amapstruct.unmappedTargetPolicy=ERROR"
+	]
+}
+
+tasks.named('compileJava') {
+	dependsOn tasks.named('jooqCodegen')
+	dependsOn tasks.named('flywayMigrate')
+
+	tasks.named('jooqCodegen').get().mustRunAfter(tasks.named('flywayMigrate'))
+}
+
+tasks.named('compileTestJava') {
+	dependsOn tasks.named('jooqCodegen')
+	dependsOn tasks.named('flywayMigrate')
+
+	tasks.named('jooqCodegen').get().mustRunAfter(tasks.named('flywayMigrate'))
+}
+
+tasks.named('jooqCodegen') {
+	dependsOn tasks.named('flywayMigrate')
+}
+
+tasks.named('jacocoTestReport') {
+	reports {
+		html.required = true
+		xml.required = false
+	}
+}
+
+tasks.named('test') {
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+
+	useJUnitPlatform()
+
+	finalizedBy tasks.named('jacocoTestReport')
+}
+
+afterEvaluate {
+	tasks.named('jacocoTestReport') {
+		classDirectories.setFrom(files(classDirectories.files.collect {
+			fileTree(dir: it, exclude: [
+					'**/generated/**',     		// Exclude generated classes
+					'**/*_*',           	   	// Exclude MapStruct-generated classes
+					'**/*Builder.*',	       	// Exclude builders
+					'**/kr/modusplant/jooq/**'	// Exclude jOOQ-generated classes
+			])
+		}))
+	}
+}
+
+tasks.register('testCoverage', Test) {
+	group = 'verification'
+	description = 'Runs the unit tests with coverage'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+
+	dependsOn(':test', ':jacocoTestReport')
+
+	tasks.named('jacocoTestReport').get().mustRunAfter(tasks.named('test'))
+}

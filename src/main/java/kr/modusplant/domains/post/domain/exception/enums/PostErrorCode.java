@@ -1,0 +1,37 @@
+package kr.modusplant.domains.post.domain.exception.enums;
+
+import kr.modusplant.shared.exception.supers.ErrorCode;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+
+@Getter
+@RequiredArgsConstructor
+public enum PostErrorCode implements ErrorCode {
+    EMPTY_POST_ID(HttpStatus.BAD_REQUEST.value(), "empty_post_id", "게시글 id가 비어 있습니다. "),
+    INVALID_POST_ID(HttpStatus.BAD_REQUEST.value(), "invalid_post_id", "게시글 id가 유효하지 않습니다. "),
+    EMPTY_AUTHOR_ID(HttpStatus.BAD_REQUEST.value(), "empty_author_id", "작성자 id가 비어 있습니다. "),
+    INVALID_AUTHOR_ID(HttpStatus.BAD_REQUEST.value(), "invalid_author_id", "작성자 id가 유효하지 않습니다. "),
+    EMPTY_POST_CONTENT(HttpStatus.BAD_REQUEST.value(), "empty_post_content", "게시글 컨텐츠가 비어 있습니다. "),
+    INVALID_POST_CONTENT(HttpStatus.BAD_REQUEST.value(), "invalid_post_content", "게시글 컨텐츠가 유효하지 않습니다. "),
+    EMPTY_LIKE_COUNT(HttpStatus.BAD_REQUEST.value(),"empty_like_count", "좋아요 수가 비어 있습니다. "),
+    INVALID_LIKE_COUNT(HttpStatus.BAD_REQUEST.value(), "invalid_like_count", "좋아요 수가 유효하지 않습니다. "),
+    EMPTY_POST_STATUS(HttpStatus.BAD_REQUEST.value(),"empty_post_status", "게시글 상태가 비어 있습니다. "),
+    INVALID_POST_STATUS(HttpStatus.BAD_REQUEST.value(), "invalid_post_status", "게시글 상태가 유효하지 않습니다. "),
+    EMPTY_CATEGORY_ID(HttpStatus.BAD_REQUEST.value(), "empty_category_id", "카테고리 id가 비어 있습니다. "),
+    INVALID_CATEGORY_ID(HttpStatus.BAD_REQUEST.value(), "invalid_category_id", "카테고리 id가 유효하지 않습니다. "),
+    POST_ACCESS_DENIED(HttpStatus.FORBIDDEN.value(), "post_access_denied", "게시글에 대한 접근 권한이 없습니다."),
+    POST_NOT_FOUND(HttpStatus.NOT_FOUND.value(), "post_not_found", "게시글을 찾을 수 없습니다."),
+    AUTHOR_NOT_FOUND(HttpStatus.NOT_FOUND.value(), "author_not_found", "작성자를 찾을 수 없습니다."),
+    CONTENT_PROCESSING_FAILED(HttpStatus.INTERNAL_SERVER_ERROR.value(),"content_processing_failed","콘텐츠를 처리하는 중 오류가 발생했습니다."),
+    EMPTY_CATEGORY_NAME(HttpStatus.BAD_REQUEST.value(),"empty_category_name","카테고리 이름이 비어 있습니다. "),
+    INVALID_CATEGORY_ORDER(HttpStatus.BAD_REQUEST.value(),"invalid_category_order","카테고리 순서가 유효하지 않습니다. "),
+    EMPTY_THUMBNAIL(HttpStatus.BAD_REQUEST.value(), "empty_thumbnail", "대표 사진값이 비어 있습니다. "),
+    INVALID_THUMBNAIL(HttpStatus.BAD_REQUEST.value(), "invalid_thumbnail", "대표 사진값이 유효하지 않습니다. "),
+    THUMBNAIL_NOT_ALLOWED(HttpStatus.BAD_REQUEST.value(), "thumbnail_not_allowed","대표 사진을 선택할 수 없습니다. "),
+    TEXT_FILE_OVER_LENGTH(HttpStatus.BAD_REQUEST.value(),"text_file_over_length","텍스트 파일 길이 제한을 초과했습니다");
+
+    private final int httpStatus;
+    private final String code;
+    private final String message;
+}

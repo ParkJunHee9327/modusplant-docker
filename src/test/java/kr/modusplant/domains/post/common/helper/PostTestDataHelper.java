@@ -1,0 +1,206 @@
+package kr.modusplant.domains.post.common.helper;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import kr.modusplant.framework.jooq.converter.JsonbJsonNodeConverter;
+import kr.modusplant.framework.jpa.generator.UlidIdGenerator;
+import kr.modusplant.jooq.tables.records.*;
+import kr.modusplant.shared.enums.Role;
+import lombok.RequiredArgsConstructor;
+import org.hibernate.generator.EventType;
+import org.jooq.DSLContext;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.UUID;
+
+import static kr.modusplant.jooq.Tables.*;
+
+@Component
+@RequiredArgsConstructor
+public class PostTestDataHelper {
+    private static final UlidIdGenerator generator = new UlidIdGenerator();
+    private final DSLContext dsl;
+    private final JsonbJsonNodeConverter jsonConverter = new JsonbJsonNodeConverter();
+
+    public SiteMemberRecord insertTestMember(String nickname) {
+        LocalDateTime dateTime = LocalDateTime.now().plusDays(7);
+        return dsl.insertInto(SITE_MEMBER)
+                .set(SITE_MEMBER.UUID, UUID.randomUUID())
+                .set(SITE_MEMBER.NICKNAME, nickname)
+                .set(SITE_MEMBER.ROLE, Role.USER.getValue())
+                .set(SITE_MEMBER.IS_ACTIVE, true)
+                .set(SITE_MEMBER.IS_BANNED, true)
+                .set(SITE_MEMBER.CREATED_AT, dateTime)
+                .set(SITE_MEMBER.LAST_MODIFIED_AT, dateTime)
+                .set(SITE_MEMBER.VER_NUM, 1)
+                .returning()
+                .fetchOneInto(SiteMemberRecord.class);
+    }
+
+    public SiteMemberProfRecord insertTestMemberProfile(SiteMemberRecord memberRecord) {
+        LocalDateTime dateTime = LocalDateTime.now().plusDays(30);
+        return dsl.insertInto(SITE_MEMBER_PROF)
+                .set(SITE_MEMBER_PROF.UUID, memberRecord.getUuid())
+                .set(SITE_MEMBER_PROF.IMAGE_PATH, "member/" + memberRecord.getUuid() + "/profile/profile.png")
+                .set(SITE_MEMBER_PROF.LAST_MODIFIED_AT, dateTime)
+                .set(SITE_MEMBER_PROF.VER_NUM, 0)
+                .returning()
+                .fetchOneInto(SiteMemberProfRecord.class);
+    }
+
+    public CommPriCateRecord insertTestPrimaryCategory(String category, int order) {
+        return dsl.insertInto(COMM_PRI_CATE)
+                .set(COMM_PRI_CATE.CATEGORY, category)
+                .set(COMM_PRI_CATE.ORDER, order)
+                .set(COMM_PRI_CATE.CREATED_AT, LocalDateTime.now().minusYears(3))
+                .returning()
+                .fetchOneInto(CommPriCateRecord.class);
+    }
+
+    public CommSecoCateRecord insertTestSecondaryCategory(CommPriCateRecord priCateRecord, String category, int order) {
+        return dsl.insertInto(COMM_SECO_CATE)
+                .set(COMM_SECO_CATE.CATEGORY, category)
+                .set(COMM_SECO_CATE.ORDER, order)
+                .set(COMM_SECO_CATE.CREATED_AT, LocalDateTime.now().minusYears(3))
+                .set(COMM_SECO_CATE.PRI_CATE_ID, priCateRecord.getId())
+                .returning()
+                .fetchOneInto(CommSecoCateRecord.class);
+    }
+
+    public CommPostRecord insertTestPublishedPost(
+            CommPriCateRecord priCateRecord, CommSecoCateRecord secoCateRecord,
+            SiteMemberRecord memberRecord, String title, JsonNode content, String thumbnailPath, LocalDateTime dateTime
+    ) {
+        return dsl.insertInto(COMM_POST)
+                .set(COMM_POST.ULID, generator.generate(null, null, null, EventType.INSERT))
+                .set(COMM_POST.PRI_CATE_ID, priCateRecord.getId())
+                .set(COMM_POST.SECO_CATE_ID, secoCateRecord.getId())
+                .set(COMM_POST.AUTH_MEMB_UUID, memberRecord.getUuid())
+                .set(COMM_POST.LIKE_COUNT, 30)
+                .set(COMM_POST.VIEW_COUNT, 251)
+                .set(COMM_POST.TITLE, title)
+                .set(COMM_POST.CONTENT, jsonConverter.to(content))
+                .set(COMM_POST.THUMBNAIL_PATH, thumbnailPath)
+                .set(COMM_POST.IS_PUBLISHED, true)
+                .set(COMM_POST.PUBLISHED_AT, dateTime)
+                .set(COMM_POST.CREATED_AT, dateTime)
+                .set(COMM_POST.UPDATED_AT, dateTime)
+                .set(COMM_POST.VER, 1)
+                .returning()
+                .fetchOneInto(CommPostRecord.class);
+    }
+
+    public CommPostRecord insertTestDraftPost(
+            CommPriCateRecord priCateRecord, CommSecoCateRecord secoCateRecord,
+            SiteMemberRecord memberRecord, String title, JsonNode content, String thumbnailPath, LocalDateTime dateTime
+    ) {
+        return dsl.insertInto(COMM_POST)
+                .set(COMM_POST.ULID,generator.generate(null,null,null, EventType.INSERT))
+                .set(COMM_POST.PRI_CATE_ID,priCateRecord!=null ? priCateRecord.getId() : null)
+                .set(COMM_POST.SECO_CATE_ID,secoCateRecord!=null ? secoCateRecord.getId() : null)
+                .set(COMM_POST.AUTH_MEMB_UUID,memberRecord.getUuid())
+                .set(COMM_POST.LIKE_COUNT,0)
+                .set(COMM_POST.VIEW_COUNT,0)
+                .set(COMM_POST.TITLE,title)
+                .set(COMM_POST.CONTENT,content!=null ? jsonConverter.to(content) : null)
+                .set(COMM_POST.THUMBNAIL_PATH, thumbnailPath)
+                .set(COMM_POST.IS_PUBLISHED,false)
+                .set(COMM_POST.CREATED_AT,dateTime)
+                .set(COMM_POST.UPDATED_AT,dateTime)
+                .set(COMM_POST.VER,1)
+                .returning()
+                .fetchOneInto(CommPostRecord.class);
+    }
+
+    public CommCommentRecord insertTestComment(CommPostRecord postRecord, String path, SiteMemberRecord memberRecord, String content, boolean isDeleted) {
+        return dsl.insertInto(COMM_COMMENT)
+                .set(COMM_COMMENT.POST_ULID,postRecord.getUlid())
+                .set(COMM_COMMENT.PATH,path)
+                .set(COMM_COMMENT.AUTH_MEMB_UUID,memberRecord.getUuid())
+                .set(COMM_COMMENT.CONTENT,content)
+                .set(COMM_COMMENT.LIKE_COUNT,2)
+                .set(COMM_COMMENT.IS_DELETED,isDeleted)
+                .set(COMM_COMMENT.CREATED_AT,LocalDateTime.now().plusDays(1))
+                .set(COMM_COMMENT.UPDATED_AT,LocalDateTime.now().plusDays(1))
+                .returning()
+                .fetchOneInto(CommCommentRecord.class);
+    }
+
+    public CommPostLikeRecord insertTestPostLike(CommPostRecord postRecord, SiteMemberRecord memberRecord, LocalDateTime dateTime) {
+        return dsl.insertInto(COMM_POST_LIKE)
+                .set(COMM_POST_LIKE.POST_ULID, postRecord.getUlid())
+                .set(COMM_POST_LIKE.MEMB_UUID, memberRecord.getUuid())
+                .set(COMM_POST_LIKE.CREATED_AT, dateTime)
+                .returning()
+                .fetchOneInto(CommPostLikeRecord.class);
+    }
+
+    public CommPostBookmarkRecord insertTestPostBookmark(CommPostRecord postRecord, SiteMemberRecord memberRecord, LocalDateTime dateTime) {
+        return dsl.insertInto(COMM_POST_BOOKMARK)
+                .set(COMM_POST_BOOKMARK.POST_ULID, postRecord.getUlid())
+                .set(COMM_POST_BOOKMARK.MEMB_UUID, memberRecord.getUuid())
+                .set(COMM_POST_BOOKMARK.CREATED_AT, dateTime)
+                .returning()
+                .fetchOneInto(CommPostBookmarkRecord.class);
+    }
+
+    public void deleteTestPostWithRelations(CommPostRecord... posts) {
+        String[] ulids = Arrays.stream(posts)
+                .map(CommPostRecord::getUlid)
+                .toArray(String[]::new);
+
+        // 댓글 삭제
+        dsl.deleteFrom(COMM_COMMENT)
+                .where(COMM_COMMENT.POST_ULID.in(ulids))
+                .execute();
+
+        // 좋아요 삭제
+        dsl.deleteFrom(COMM_POST_LIKE)
+                .where(COMM_POST_LIKE.POST_ULID.in(ulids))
+                .execute();
+
+        // 북마크 삭제
+        dsl.deleteFrom(COMM_POST_BOOKMARK)
+                .where(COMM_POST_BOOKMARK.POST_ULID.in(ulids))
+                .execute();
+
+        // 게시글 삭제
+        dsl.deleteFrom(COMM_POST)
+                .where(COMM_POST.ULID.in(ulids))
+                .execute();
+    }
+
+    public void deleteTestCategory(CommPriCateRecord... primaryCategories) {
+        Integer[] ids = Arrays.stream(primaryCategories)
+                .map(CommPriCateRecord::getId)
+                .toArray(Integer[]::new);
+
+        // 2차 카테고리 삭제
+        dsl.deleteFrom(COMM_SECO_CATE)
+                .where(COMM_SECO_CATE.PRI_CATE_ID.in(ids))
+                .execute();
+
+        // 1차 카테고리 삭제
+        dsl.deleteFrom(COMM_PRI_CATE)
+                .where(COMM_PRI_CATE.ID.in(ids))
+                .execute();
+    }
+
+    public void deleteTestMember(SiteMemberRecord... members) {
+        UUID[] uuids = Arrays.stream(members)
+                .map(SiteMemberRecord::getUuid)
+                .toArray(UUID[]::new);
+
+        // 회원 프로필 정보 삭제
+        dsl.deleteFrom(SITE_MEMBER_PROF)
+                .where(SITE_MEMBER_PROF.UUID.in(uuids))
+                .execute();
+
+        // 회원 삭제
+        dsl.deleteFrom(SITE_MEMBER)
+                .where(SITE_MEMBER.UUID.in(uuids))
+                .execute();
+    }
+
+}

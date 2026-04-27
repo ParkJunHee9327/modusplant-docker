@@ -1,0 +1,419 @@
+package kr.modusplant.domains.post.domain.aggregate;
+
+import kr.modusplant.domains.post.common.util.domain.aggregate.PostTestUtils;
+import kr.modusplant.domains.post.domain.exception.EmptyValueException;
+import kr.modusplant.domains.post.domain.exception.InvalidValueException;
+import kr.modusplant.domains.post.domain.vo.LikeCount;
+import kr.modusplant.domains.post.domain.vo.PostContent;
+import kr.modusplant.domains.post.domain.vo.PostId;
+import kr.modusplant.domains.post.domain.vo.PostStatus;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+import static kr.modusplant.domains.post.common.constant.PostJsonNodeConstant.TEST_POST_CONTENT;
+import static kr.modusplant.domains.post.common.constant.PostJsonNodeConstant.TEST_POST_CONTENT_THUMBNAIL_KEY;
+import static org.junit.jupiter.api.Assertions.*;
+
+class PostTest implements PostTestUtils {
+    @Nested
+    @DisplayName("Post 생성 테스트")
+    class CreateTests {
+
+        @Test
+        @DisplayName("모든 파라미터가 유효할 때 Post를 성공적으로 생성한다")
+        void testCreate_givenValidParameter_willReturnPost() {
+            // then
+            assertNotNull(createPublishedPost());
+            assertEquals(testPostId, createPublishedPost().getPostId());
+            assertEquals(testAuthorId, createPublishedPost().getAuthorId());
+            assertEquals(testPrimaryCategoryId, createPublishedPost().getPrimaryCategoryId());
+            assertEquals(testSecondaryCategoryId, createPublishedPost().getSecondaryCategoryId());
+            assertEquals(testPostContent, createPublishedPost().getPostContent());
+            assertEquals(testLikeCount, createPublishedPost().getLikeCount());
+            assertEquals(PostStatus.published(), createPublishedPost().getStatus());
+        }
+
+        @Test
+        @DisplayName("Post의 파라미터가 null일 때 Exception을 발생시킨다.")
+        void testCreate_givenNullParameter_willThrowException() {
+            assertThrows(EmptyValueException.class, () ->
+                    Post.create(null, testAuthorId, testPrimaryCategoryId,
+                            testSecondaryCategoryId, testPostContent, testLikeCount, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.create(testPostId, null, testPrimaryCategoryId,
+                            testSecondaryCategoryId, testPostContent, testLikeCount, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.create(testPostId, testAuthorId, null,
+                            testSecondaryCategoryId, testPostContent, testLikeCount, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.create(testPostId, testAuthorId, testPrimaryCategoryId,
+                            testSecondaryCategoryId, null, testLikeCount, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.create(testPostId, testAuthorId, testPrimaryCategoryId,
+                            testSecondaryCategoryId, testPostContent, null, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.create(testPostId, testAuthorId, testPrimaryCategoryId,
+                            testSecondaryCategoryId, testPostContent, testLikeCount, null));
+
+        }
+    }
+
+    @Nested
+    @DisplayName("Draft Post 생성 테스트")
+    class CreateDraftTests {
+        @Test
+        @DisplayName("유효한 파라미터로 Draft Post를 성공적으로 생성한다")
+        void testCreateDraft_givenValidParameter_willReturnPost() {
+            // when
+            Post post = Post.createDraft(testAuthorId, testPrimaryCategoryId, testSecondaryCategoryId, testPostContent);
+
+            // then
+            assertNotNull(post);
+            assertEquals(testAuthorId, post.getAuthorId());
+            assertEquals(testPrimaryCategoryId, post.getPrimaryCategoryId());
+            assertEquals(testSecondaryCategoryId, post.getSecondaryCategoryId());
+            assertEquals(testPostContent, post.getPostContent());
+            assertEquals(LikeCount.zero(), post.getLikeCount());
+            assertEquals(PostStatus.draft(), post.getStatus());
+        }
+
+        @Test
+        @DisplayName("Post의 파라미터가 null일 때 Exception을 발생시킨다.")
+        void testCreateDraft_givenNullParameter_willThrowException() {
+            assertThrows(EmptyValueException.class, () ->
+                    Post.createDraft( null, testPrimaryCategoryId, testSecondaryCategoryId, testPostContent));
+            assertThrows(EmptyValueException.class, () ->
+                    Post.createDraft(testAuthorId, null, testSecondaryCategoryId, testPostContent));
+            assertThrows(EmptyValueException.class, () ->
+                    Post.createDraft( testAuthorId, testPrimaryCategoryId, testSecondaryCategoryId, null));
+        }
+    }
+
+    @Nested
+    @DisplayName("Published Post 생성 테스트")
+    class CreatePublishedTests {
+        @Test
+        @DisplayName("유효한 파라미터로 Draft Post를 성공적으로 생성한다")
+        void testCreatePublished_givenValidParameter_willReturnPost() {
+            // when
+            Post post = Post.createPublished(testAuthorId, testPrimaryCategoryId, testSecondaryCategoryId, testPostContent);
+
+            // then
+            assertNotNull(post);
+            assertEquals(testAuthorId, post.getAuthorId());
+            assertEquals(testPrimaryCategoryId, post.getPrimaryCategoryId());
+            assertEquals(testSecondaryCategoryId, post.getSecondaryCategoryId());
+            assertEquals(testPostContent, post.getPostContent());
+            assertEquals(LikeCount.zero(), post.getLikeCount());
+            assertEquals(PostStatus.published(), post.getStatus());
+        }
+
+        @Test
+        @DisplayName("Post의 파라미터가 null일 때 Exception을 발생시킨다.")
+        void testCreatePublished_givenNullParameter_willThrowException() {
+            assertThrows(EmptyValueException.class, () ->
+                    Post.createPublished( null, testPrimaryCategoryId, testSecondaryCategoryId, testPostContent));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.createPublished( testAuthorId, null, testSecondaryCategoryId, testPostContent));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.createPublished( testAuthorId, testPrimaryCategoryId, null, testPostContent));
+
+            assertThrows(EmptyValueException.class, () ->
+                    Post.createPublished( testAuthorId, testPrimaryCategoryId, testSecondaryCategoryId, null));
+        }
+    }
+
+    @Nested
+    @DisplayName("Post 업데이트 테스트")
+    class UpdateTests {
+        @Test
+        @DisplayName("유효한 파라미터로 Post를 성공적으로 업데이트한다")
+        void testUpdate_givenValidParameter_willReturnPost() {
+            // given
+            Post post = createDraftPost();
+            PostContent postContent = PostContent.create("title",TEST_POST_CONTENT,TEST_POST_CONTENT_THUMBNAIL_KEY);
+
+            // when
+            post.update(testAuthorId2, testPrimaryCategoryId2, testSecondaryCategoryId2, postContent, PostStatus.published());
+
+            // then
+            assertEquals(testAuthorId2, post.getAuthorId());
+            assertEquals(testPrimaryCategoryId2, post.getPrimaryCategoryId());
+            assertEquals(testSecondaryCategoryId2, post.getSecondaryCategoryId());
+            assertEquals(postContent, post.getPostContent());
+            assertEquals(PostStatus.published(), post.getStatus());
+        }
+
+        @Test
+        @DisplayName("Post의 파라미터가 null일 때 Exception을 발생시킨다.")
+        void testUpdate_givenNullParameter_willThrowException() {
+            // given
+            Post post = createDraftPost();
+            PostContent postContent = PostContent.create("title",TEST_POST_CONTENT, TEST_POST_CONTENT_THUMBNAIL_KEY);
+
+            // when & then
+            assertThrows(EmptyValueException.class, () ->
+                    post.update(null, testPrimaryCategoryId2, testSecondaryCategoryId2, postContent, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    post.update(testAuthorId2, null, testSecondaryCategoryId2, postContent, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    post.update(testAuthorId2, testPrimaryCategoryId2, null, postContent, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    post.update(testAuthorId2, testPrimaryCategoryId2, testSecondaryCategoryId2, null, PostStatus.published()));
+
+            assertThrows(EmptyValueException.class, () ->
+                    post.update(testAuthorId2, testPrimaryCategoryId2, testSecondaryCategoryId2, postContent, null));
+        }
+
+        @Test
+        @DisplayName("Post의 파라미터가 null일 때 Exception을 발생시킨다.")
+        void testUpdate_givenPublishedPostToDraftPost_willThrowException() {
+            // given
+            Post post = createPublishedPost();
+            PostContent postContent = PostContent.create("title",TEST_POST_CONTENT, TEST_POST_CONTENT_THUMBNAIL_KEY);
+
+            // when & then
+            assertThrows(InvalidValueException.class, () ->
+                    post.updateDraft(testAuthorId2, testPrimaryCategoryId2, testSecondaryCategoryId2, postContent));
+        }
+    }
+
+    @Nested
+    @DisplayName("Post 임시저장 업데이트 테스트")
+    class UpdateDraftTests {
+        @Test
+        @DisplayName("유효한 파라미터로 Post를 성공적으로 업데이트한다")
+        void testUpdateDraft_givenValidParameter_willReturnPost() {
+            // given
+            Post post = createDraftPost();
+            PostContent postContent = testPostContent;
+
+            // when
+            post.updateDraft(testAuthorId2, testPrimaryCategoryId2, null, postContent);
+
+            // then
+            assertEquals(testAuthorId2, post.getAuthorId());
+            assertEquals(testPrimaryCategoryId2, post.getPrimaryCategoryId());
+            assertNull(post.getSecondaryCategoryId());
+            assertEquals(postContent, post.getPostContent());
+            assertEquals(PostStatus.draft(), post.getStatus());
+        }
+
+        @Test
+        @DisplayName("Post의 파라미터가 null일 때 Exception을 발생시킨다.")
+        void testUpdateDraft_givenNullParameter_willThrowException() {
+            // given
+            Post post = createDraftPost();
+            PostContent postContent = testPostContent;
+
+            // when & then
+            assertThrows(EmptyValueException.class, () ->
+                    post.updateDraft(null, testPrimaryCategoryId2, testSecondaryCategoryId2, postContent));
+
+            assertThrows(EmptyValueException.class, () ->
+                    post.updateDraft(testAuthorId2, null, testSecondaryCategoryId2, postContent));
+
+            assertThrows(EmptyValueException.class, () ->
+                    post.updateDraft(testAuthorId2, testPrimaryCategoryId2, testSecondaryCategoryId2, null));
+        }
+
+        @Test
+        @DisplayName("발행된 게시글을 임시저장할 때 Exception을 발생시킨다.")
+        void testUpdateDraft_givenInvalidStatus_willThrowException() {
+            // given
+            Post post = createPublishedPost();
+            PostContent postContent = testPostContent;
+
+            // when & then
+            assertThrows(InvalidValueException.class, () ->
+                    post.updateDraft(testAuthorId2, testPrimaryCategoryId2, testSecondaryCategoryId2, postContent));
+        }
+    }
+
+
+    @Nested
+    @DisplayName("AuthorId 업데이트 테스트")
+    class UpdateAuthorIdTests {
+
+        @Test
+        @DisplayName("유효한 AuthorId로 성공적으로 업데이트한다")
+        void testUpdateAuthorId_givenValidParameter_willReturnPost() {
+            // given
+            Post post = createPublishedPost();
+
+            // when
+            post.updateAuthorId(testAuthorId2);
+
+            // then
+            assertEquals(testAuthorId2, post.getAuthorId());
+        }
+
+        @Test
+        @DisplayName("AuthorId가 null일 때 EmptyValueException을 발생시킨다")
+        void testUpdateAuthorId_givenNullParameter_willThrowException() {
+            // given
+            Post post = createPublishedPost();
+
+            // when & then
+            assertThrows(EmptyValueException.class, () ->
+                    post.updateAuthorId(null));
+        }
+    }
+
+    @Nested
+    @DisplayName("Content 업데이트 테스트")
+    class UpdateContentTests {
+
+        @Test
+        @DisplayName("새로운 Content로 성공적으로 업데이트한다")
+        void testUpdateContent_givenValidParameter_willReturnPost() {
+            // given
+            Post post = createDraftPost();
+            PostContent postContent = PostContent.create("title",TEST_POST_CONTENT, TEST_POST_CONTENT_THUMBNAIL_KEY);
+
+            // when
+            post.updateContent(postContent);
+
+            // then
+            assertEquals(postContent, post.getPostContent());
+        }
+    }
+
+    @Nested
+    @DisplayName("Post 발행 테스트")
+    class PublishTests {
+
+        @Test
+        @DisplayName("Draft 상태의 Post를 성공적으로 발행한다")
+        void testPublish_givenNothing_willChangeStatus() {
+            // given
+            Post post = createDraftPost();
+
+            // when
+            post.publish();
+
+            // then
+            assertEquals(PostStatus.published(), post.getStatus());
+        }
+
+        @Test
+        @DisplayName("유효하지 않은 Draft 상태의 Post를 발행하려 할 때 EmptyValueException을 발생시킨다")
+        void testPublish_givenInvalidPost_willThrowException() {
+            // given
+            Post post = createDraftPostWithEmptyValue();
+
+            // when & then
+            assertThrows(EmptyValueException.class, post::publish);
+        }
+
+        @Test
+        @DisplayName("이미 발행된 Post를 발행하려 할 때 InvalidValueException을 발생시킨다")
+        void testPublish_givenPublishedPost_willThrowException() {
+            // given
+            Post post = createPublishedPost();
+
+            // when & then
+            assertThrows(InvalidValueException.class, post::publish);
+        }
+    }
+
+    @Nested
+    @DisplayName("Like 테스트")
+    class LikeTests {
+
+        @Test
+        @DisplayName("발행된 Post에 Like를 성공적으로 추가한다")
+        void testLike_givenPublishedPost_willSucceed() {
+            // given
+            Post post = createPublishedPost();
+            LikeCount originalLikeCount = post.getLikeCount();
+
+            // when
+            post.like();
+
+            // then
+            assertEquals(originalLikeCount.increment(), post.getLikeCount());
+        }
+
+        @Test
+        @DisplayName("Draft 상태의 Post에 Like를 추가하려 할 때 InvalidValueException을 발생시킨다")
+        void testLike_givenDraftPost_willThrowException() {
+            // given
+            Post post = createDraftPost();
+
+            // when & then
+            assertThrows(InvalidValueException.class, post::like);
+        }
+    }
+
+    @Nested
+    @DisplayName("Unlike 테스트")
+    class UnlikeTests {
+
+        @Test
+        @DisplayName("발행된 Post에서 Like를 성공적으로 제거한다")
+        void testUnlike_givenPublishedPost_willSucceed() {
+            // given
+            Post post = createPublishedPost();
+            post.like(); // 먼저 like를 추가
+            LikeCount likedCount = post.getLikeCount();
+
+            // when
+            post.unlike();
+
+            // then
+            assertEquals(likedCount.decrement(), post.getLikeCount());
+        }
+
+        @Test
+        @DisplayName("Draft 상태의 Post에서 Like를 제거하려 할 때 InvalidValueException을 발생시킨다")
+        void testunlike_givenDraftPost_willThrowException() {
+            // given
+            Post post = createDraftPost();
+
+            // when & then
+            assertThrows(InvalidValueException.class, post::unlike);
+        }
+    }
+
+    @Nested
+    @DisplayName("Equals와 HashCode 테스트")
+    class EqualsAndHashCodeTests {
+
+        @Test
+        @DisplayName("같은 객체에 대한 equals 호출")
+        void useEqual_givenSameObject_willReturnTrue() {
+            // when & then
+            assertEquals(createDraftPost(), createDraftPost());
+        }
+
+        @Test
+        @DisplayName("다른 클래스의 인스턴스에 대한 equals 호출")
+        void useEqual_givenObjectOfDifferentClass_willReturnFalse() {
+            assertNotEquals(createDraftPost(), testPostId);
+        }
+
+        @Test
+        @DisplayName("다른 프로퍼티를 갖는 인스턴스에 대한 equals 호출")
+        void useEqual_givenObjectContainingDifferentProperty_willReturnFalse() {
+            assertNotEquals(
+                    createPublishedPost(),
+                    Post.create(PostId.generate(),testAuthorId, testPrimaryCategoryId, testSecondaryCategoryId, testPostContent,testLikeCount, PostStatus.published())
+            );
+        }
+
+    }
+
+
+}
