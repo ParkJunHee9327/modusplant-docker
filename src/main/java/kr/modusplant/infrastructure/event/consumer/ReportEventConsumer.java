@@ -91,7 +91,7 @@ public class ReportEventConsumer {
 
     private void deleteImageFromReportImagePath(String reportId) {
         String imagePath =
-                dsl.select(PROP_BUG_REP.IMAGE_PATH)
+                dsl.select(PROP_BUG_REP.IMAGE)
                         .from(PROP_BUG_REP)
                         .where(PROP_BUG_REP.ULID.eq(reportId))
                         .fetchSingle().into(String.class);

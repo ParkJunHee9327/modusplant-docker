@@ -6,10 +6,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableScheduling
-public class ModusplantApplication {
+public class ModusplantDockerApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(ModusplantApplication.class, args);
+		SpringApplication.run(ModusplantDockerApplication.class, args);
 	}
 
 }
